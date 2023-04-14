@@ -7,7 +7,7 @@ import csv
 
 # Настройки
 
-auto_delete_list = ['spam', 'trash', 'drafts|template']  # Папки для исключения из копирования
+auto_delete_list = ['spam', 'trash', 'drafts|template', 'черновики|template']  # Папки для исключения из копирования
 copy_mode = "auto"  # auto или manual
 since_date = "01-Jan-1990"  # Дата для начала копирования
 before_date = "11-Apr-2023"  # Дата окончания копирования
