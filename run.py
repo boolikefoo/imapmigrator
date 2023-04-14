@@ -17,6 +17,7 @@ just_fix_windows_console()
 
 # загружаем csv файл с учётными записями
 csv_file_path = 'data.csv'
+copy_log_file = 'copy_log_file.csv'
 
 with open(csv_file_path, encoding="UTF-8") as file:
     file_reader = csv.reader(file, delimiter=",")
@@ -24,6 +25,41 @@ with open(csv_file_path, encoding="UTF-8") as file:
     accounts_list = []
     for row in file_reader:
         accounts_list.append(row)
+
+
+def write_copy_log(line):
+    with open(copy_log_file, "w", newline='') as file:
+        file_writer = csv.writer(file)
+        file_writer.writerow(line)
+
+
+def read_copy_log(account, folder):
+    with open(copy_log_file, "r") as file:
+        file_reader = csv.reader(file, delimiter=",")
+
+        for row in file_reader:
+            print(row)
+
+
+# Проверка логинов и паролей на возможность подключения к серверу
+def account_check(accounts_list):
+
+    for account in accounts_list:
+        src_server = account[0]
+        src_username = account[1]
+        src_password = account[2]
+        dest_server = account[3]
+        dest_username = account[4]
+        dest_password = account[5]
+        try: 
+            src_conn = imaplib.IMAP4_SSL(src_server)
+            dest_conn = imaplib.IMAP4_SSL(dest_server)            # src_conn.login(src_username, src_password)
+            print(Fore.YELLOW + f'Подключение к целевому аккаунту {src_username} :', src_conn.login(src_username, src_password)[0] + Style.RESET_ALL)            
+            print(Fore.BLUE + f'Подключение к удалённому аккаунту {dest_username} :', dest_conn.login(dest_username, dest_password)[0] + Style.RESET_ALL)
+            src_conn.logout()
+            dest_conn.logout()
+        except Exception as e:
+            print(Fore.RED + f'Произошла ошибка при проверке аккаунта {src_username}, {dest_username}: {str(e)}' + Style.RESET_ALL)
 
 
 def copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, folder):
@@ -36,6 +72,8 @@ def copy_emails(src_server, src_username, src_password, dest_server, dest_userna
     dest_conn.login(dest_username, dest_password)
 
     try:
+        # читаем лог файл
+        # read_copy_log(src_username, folder)
         # Выбор папки на исходном сервере
         src_conn.select(folder)
 
@@ -58,7 +96,10 @@ def copy_emails(src_server, src_username, src_password, dest_server, dest_userna
         for i, num in contrib.tenumerate(data[0].split(), ncols=80, ascii=True, desc=f'Копируем из {folder_decode(bytes(folder, "utf-8"))}'):
             typ, msg_data = src_conn.fetch(num, '(RFC822)')
             dest_conn.append(folder, None, None, msg_data[0][1])
-            
+            #print(msg_data)
+        # Записываем в лог файл
+        #write_copy_log(src_username, folder, )
+        
     except Exception as e:
         print(f'Произошла ошибка при копировании: {str(e)}')
 
@@ -143,7 +184,9 @@ def folder_choise(folder_list):
                 folders_for_migration.append(folder)
 
         return folders_for_migration
+    
 
+account_check(accounts_list)
 
 for account in accounts_list:
     src_server = account[0]
