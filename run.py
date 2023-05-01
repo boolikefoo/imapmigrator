@@ -4,10 +4,11 @@ from time import sleep
 from tqdm import tqdm, contrib
 from colorama import init, Fore, Style, just_fix_windows_console
 import csv
+import json
 
 # Настройки
 
-auto_delete_list = ['spam', 'trash', 'drafts|template']  # Папки для исключения из копирования
+auto_delete_list = ['spam', 'trash', 'drafts|template', 'спам', 'удаленные']  # Папки для исключения из копирования
 copy_mode = "auto"  # auto или manual
 since_date = "01-Jan-1990"  # Дата для начала копирования
 before_date = "11-Apr-2023"  # Дата окончания копирования
@@ -17,7 +18,7 @@ just_fix_windows_console()
 
 # загружаем csv файл с учётными записями
 csv_file_path = 'data.csv'
-copy_log_file = 'copy_log_file.csv'
+json_log_file = 'log.json'
 
 with open(csv_file_path, encoding="UTF-8") as file:
     file_reader = csv.reader(file, delimiter=",")
@@ -27,18 +28,35 @@ with open(csv_file_path, encoding="UTF-8") as file:
         accounts_list.append(row)
 
 
-def write_copy_log(line):
-    with open(copy_log_file, "w", newline='') as file:
-        file_writer = csv.writer(file)
-        file_writer.writerow(line)
+def write_log(account, mailbox, last_email):
+    data = read_log()
+
+    if not data:
+        data = {"accounts": {account: {'last_mail': {mailbox: last_email}}}}
+    else:
+        if account not in data['accounts']:
+            data['accounts'].update({account: {'last_mail': {mailbox: last_email}}})
+        else:
+            data['accounts'][account]['last_mail'].update({mailbox: last_email})   
+
+    json_data = json.dumps(data)
+    with open(json_log_file, 'w') as jwf:
+        jwf.write(json_data)
 
 
-def read_copy_log(account, folder):
-    with open(copy_log_file, "r") as file:
-        file_reader = csv.reader(file, delimiter=",")
+def read_log():
+    try:
+        with open(json_log_file, 'r') as jrf:
+            data = jrf.read()
+            if not data:
+                return None
+            else:
+                new_data = json.loads(data)
 
-        for row in file_reader:
-            print(row)
+            return new_data
+    except FileNotFoundError:
+        print(f'Не существует лог файл...Создаём...')
+        open(json_log_file, 'a')
 
 
 # Проверка логинов и паролей на возможность подключения к серверу
@@ -62,7 +80,7 @@ def account_check(accounts_list):
             print(Fore.RED + f'Произошла ошибка при проверке аккаунта {src_username}, {dest_username}: {str(e)}' + Style.RESET_ALL)
 
 
-def copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, folder):
+def copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, folder, copy_start):
     # Установка соединения с исходным IMAP-сервером
     src_conn = imaplib.IMAP4_SSL(src_server)
     src_conn.login(src_username, src_password)
@@ -72,8 +90,7 @@ def copy_emails(src_server, src_username, src_password, dest_server, dest_userna
     dest_conn.login(dest_username, dest_password)
 
     try:
-        # читаем лог файл
-        # read_copy_log(src_username, folder)
+
         # Выбор папки на исходном сервере
         src_conn.select(folder)
 
@@ -91,15 +108,14 @@ def copy_emails(src_server, src_username, src_password, dest_server, dest_userna
         # Вывод информации о количестве писем в папке
         email_count = len(data[0].split())
         print(f'Найдено {email_count} писем для копирования.')
-
+        copy_start = 0
         # Итерация по всем письмам в папке на исходном сервере и копирование их на целевой сервер
-        for i, num in contrib.tenumerate(data[0].split(), ncols=80, ascii=True, desc=f'Копируем из {folder_decode(bytes(folder, "utf-8"))}'):
+        for i, num in contrib.tenumerate(data[0].split(), ncols=80, ascii=True, desc=f'Копируем из {folder_decode(bytes(folder, "utf-8"))}', start=copy_start):
             typ, msg_data = src_conn.fetch(num, '(RFC822)')
             dest_conn.append(folder, None, None, msg_data[0][1])
-            #print(msg_data)
-        # Записываем в лог файл
-        #write_copy_log(src_username, folder, )
-        
+            # Записываем в лог файл
+            write_log(src_username, folder, int(num))
+
     except Exception as e:
         print(f'Произошла ошибка при копировании: {str(e)}')
 
@@ -128,7 +144,7 @@ def folders_list(src_server, src_username, src_password):
         # Выбор папки на исходном сервере
         new_folders = []
         for folder in (src_conn.list()[1]):
-            # print(folder_decode(folder), f' оригинальная {folder}')
+
             n_folder = folder.decode().split('"|" ')[-1:]
             new_folders.append(*n_folder)
 
@@ -184,10 +200,9 @@ def folder_choise(folder_list):
                 folders_for_migration.append(folder)
 
         return folders_for_migration
-    
 
-account_check(accounts_list)
 
+account_check(accounts_list)    # Проверяем коректность данных для авторизации
 for account in accounts_list:
     src_server = account[0]
     src_username = account[1]
@@ -204,8 +219,22 @@ for account in accounts_list:
         sleep(3)
         try:
 
-            for new_folder in tqdm(new_folders_list, ncols=80, desc="Total"):
-                copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, new_folder)
+            for new_folder in new_folders_list:
+                data_log = read_log()
+                copy_start = 0
+
+                if not data_log:
+                    copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, new_folder, copy_start)
+                else:
+                    if src_username in data_log['accounts']:
+                        if new_folder in data_log['accounts'][src_username]['last_mail']:
+                            copy_start = int(data_log['accounts'][src_username]['last_mail'][new_folder])
+                            copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, new_folder, copy_start)
+                        else:
+                            copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, new_folder, copy_start)
+                    else:
+                        copy_emails(src_server, src_username, src_password, dest_server, dest_username, dest_password, new_folder, copy_start)
+
             print("Копирование завершено!")
         except Exception as e:
             print(f'Произошла ошибка при выборе папки для копирования на удалённом сервере: {str(e)}')

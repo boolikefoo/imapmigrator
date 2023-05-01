@@ -166,3 +166,7 @@ data2.csv
 runv2.py
 test2.py
 runv3.py
+test3.py
+test4.py
+run_demo.py
+*.json
